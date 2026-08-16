@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Raja Kera - Shadow Staff</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;background:#111;color:white;font-family:Arial,sans-serif;
+  display:flex;justify-content:center;align-items:center;min-height:100vh;
+}
+#wrap{width:min(1000px,96vw);text-align:center}
+h1{margin:8px;color:#ffd166}
+canvas{
+  width:100%;max-height:70vh;background:#182b25;
+  border:4px solid #704214;border-radius:12px;
+  image-rendering:pixelated;
+}
+#info{margin:8px;font-size:14px;color:#ddd}
+button{
+  background:#7b3f00;color:white;border:0;border-radius:8px;
+  padding:10px 16px;margin:3px;font-weight:bold;
+}
+</style>
+</head>
+<body>
+
+<div id="wrap">
+<h1>🐒 RAJA KERA: SHADOW STAFF</h1>
+<canvas id="game" width="960" height="540"></canvas>
+<div id="info">
+  A/D atau ←/→ = bergerak · W/↑ = lompat · J = serang · K = serangan berat · L = jurus
+</div>
+<button onclick="restart()">MAIN LAGI</button>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+const W=canvas.width,H=canvas.height;
+const ground=455;
+
+const keys={};
+
+document.addEventListener("keydown",e=>{
+  keys[e.key.toLowerCase()]=true;
+  if(["ArrowLeft","ArrowRight","ArrowUp"," "].includes(e.key))
+    e.preventDefault();
+});
+
+document.addEventListener("keyup",e=>{
+  keys[e.key.toLowerCase()]=false;
+});
+
+let player,enemies,particles,score,wave,gameOver,win;
+let attackCooldown=0;
+let specialCooldown=0;
+
+function restart(){
+  player={
+    x:150,y:ground-70,w:42,h:70,
+    vx:0,vy:0,
+    hp:100,maxHp:100,
+    stamina:100,maxStamina:100,
+    facing:1,
+    attack:0,
+    heavy:0,
+    special:0,
+    inv:0
+  };
+
+  enemies=[];
+  particles=[];
+  score=0;
+  wave=1;
+  gameOver=false;
+  win=false;
+
+  spawnWave();
+}
+
+function spawnWave(){
+  enemies=[];
+
+  let count=wave<3?2:3;
+
+  for(let i=0;i<count;i++){
+    enemies.push({
+      x:650+i*80,
+      y:ground-55,
+      w:42,h:55,
+      hp:wave>=4?80:45,
+      maxHp:wave>=4?80:45,
+      speed:1.2+wave*.08,
+      hit:0,
+      attack:0
+    });
+  }
+}
+
+function rect(a){
+  return {x:a.x,y:a.y,w:a.w,h:a.h};
+}
+
+function overlap(a,b){
+  return a.x<b.x+b.w &&
+         a.x+a.w>b.x &&
+         a.y<b.y+b.h &&
+         a.y+a.h>b.y;
+}
+
+function damageEnemy(e,amount){
+  e.hp-=amount;
+  e.hit=10;
+
+  for(let i=0;i<8;i++){
+    particles.push({
+      x:e.x+e.w/2,
+      y:e.y+20,
+      vx:(Math.random()-.5)*5,
+      vy:-Math.random()*4,
+      life:25,
+      color:"#ffd166"
+    });
+  }
+
+  if(e.hp<=0){
+    score+=100;
+    for(let i=0;i<15;i++){
+      particles.push({
+        x:e.x+20,y:e.y+25,
+        vx:(Math.random()-.5)*7,
+        vy:(Math.random()-.5)*7,
+        life:40,
+        color:"#ff6b35"
+      });
+    }
+  }
+}
+
+function playerAttack(){
+  if(attackCooldown>0 || player.stamina<8)return;
+
+  attackCooldown=20;
+  player.attack=10;
+  player.stamina-=8;
+
+  const range={
+    x:player.facing>0?player.x+player.w:player.x-70,
+    y:player.y+15,
+    w:70,h:35
+  };
+
+  enemies.forEach(e=>{
+    if(overlap(range,rect(e))) damageEnemy(e,20);
+  });
+}
+
+function heavyAttack(){
+  if(attackCooldown>0 || player.stamina<20)return;
+
+  attackCooldown=35;
+  player.heavy=14;
+  player.stamina-=20;
+
+  const range={
+    x:player.facing>0?player.x+player.w-5:player.x-110,
+    y:player.y-5,
+    w:110,h:65
+  };
+
+  enemies.forEach(e=>{
+    if(overlap(range,rect(e))) damageEnemy(e,45);
+  });
+}
+
+function specialAttack(){
+  if(specialCooldown>0 || player.stamina<40)return;
+
+  specialCooldown=100;
+  player.special=25;
+  player.stamina-=40;
+
+  enemies.forEach(e=>{
+    const dx=e.x-player.x;
+
+    if(Math.abs(dx)<190){
+      damageEnemy(e,65);
+      e.x+=player.facing*50;
+    }
+  });
+
+  for(let i=0;i<30;i++){
+    particles.push({
+      x:player.x+player.w/2,
+      y:player.y+player.h/2,
+      vx:(Math.random()-.5)*10,
+      vy:(Math.random()-.5)*10,
+      life:45,
+      color:"#ffcc33"
+    });
+  }
+}
+
+function update(){
+  if(gameOver)return;
+
+  // Gerak
+  player.vx=0;
+
+  if(keys["a"]||keys["arrowleft"]){
+    player.vx=-4;
+    player.facing=-1;
+  }
+
+  if(keys["d"]||keys["arrowright"]){
+    player.vx=4;
+    player.facing=1;
+  }
+
+  if((keys["w"]||keys["arrowup"]) && player.y>=ground-player.h){
+    player.vy=-11;
+  }
+
+  if(keys["j"]){
+    playerAttack();
+  }
+
+  if(keys["k"]){
+    heavyAttack();
+  }
+
+  if(keys["l"]){
+    specialAttack();
+  }
+
+  player.x+=player.vx;
+  player.vy+=.55;
+  player.y+=player.vy;
+
+  if(player.y>ground-player.h){
+    player.y=ground-player.h;
+    player.vy=0;
+  }
+
+  player.x=Math.max(20,Math.min(W-player.w-20,player.x));
+
+  if(player.attack>0)player.attack--;
+  if(player.heavy>0)player.heavy--;
+  if(player.special>0)player.special--;
+  if(player.inv>0)player.inv--;
+
+  if(attackCooldown>0)attackCooldown--;
+  if(specialCooldown>0)specialCooldown--;
+
+  player.stamina=Math.min(
+    player.maxStamina,
+    player.stamina+.35
+  );
+
+  // Musuh
+  enemies.forEach(e=>{
+    if(e.hp<=0)return;
+
+    if(e.hit>0){
+      e.hit--;
+      return;
+    }
+
+    const dx=player.x-e.x;
+
+    if(Math.abs(dx)>55){
+      e.x+=Math.sign(dx)*e.speed;
+    }else{
+      if(e.attack<=0){
+        e.attack=50;
+
+        if(player.inv<=0){
+          player.hp-=8;
+          player.inv=30;
+
+          for(let i=0;i<6;i++){
+            particles.push({
+              x:player.x+20,
+              y:player.y+30,
+              vx:(Math.random()-.5)*5,
+              vy:-Math.random()*4,
+              life:25,
+              color:"#ff3333"
+            });
+          }
+        }
+      }
+    }
+
+    if(e.attack>0)e.attack--;
+  });
+
+  enemies=enemies.filter(e=>e.hp>0);
+
+  if(enemies.length===0){
+    if(wave>=5){
+      win=true;
+      gameOver=true;
+    }else{
+      wave++;
+      player.hp=Math.min(player.maxHp,player.hp+20);
+      player.stamina=100;
+      spawnWave();
+    }
+  }
+
+  if(player.hp<=0){
+    player.hp=0;
+    gameOver=true;
+  }
+
+  // Partikel
+  particles.forEach(p=>{
+    p.x+=p.vx;
+    p.y+=p.vy;
+    p.vy+=.15;
+    p.life--;
+  });
+
+  particles=particles.filter(p=>p.life>0);
+}
+
+function drawBackground(){
+  // langit
+  ctx.fillStyle="#16251f";
+  ctx.fillRect(0,0,W,H);
+
+  // bulan
+  ctx.fillStyle="#e9d8a6";
+  ctx.beginPath();
+  ctx.arc(790,100,55,0,Math.PI*2);
+  ctx.fill();
+
+  // gunung
+  ctx.fillStyle="#203d32";
+
+  ctx.beginPath();
+  ctx.moveTo(0,350);
+  ctx.lineTo(180,170);
+  ctx.lineTo(340,350);
+  ctx.lineTo(500,150);
+  ctx.lineTo(720,350);
+  ctx.lineTo(850,190);
+  ctx.lineTo(960,350);
+  ctx.closePath();
+  ctx.fill();
+
+  // tanah
+  ctx.fillStyle="#49351f";
+  ctx.fillRect(0,ground,W,H-ground);
+
+  ctx.fillStyle="#70522c";
+  for(let x=0;x<W;x+=45){
+    ctx.fillRect(x,ground+10,25,5);
+  }
+
+  // pohon
+  for(let x=80;x<W;x+=190){
+    ctx.fillStyle="#382718";
+    ctx.fillRect(x,260,25,195);
+
+    ctx.fillStyle="#183c29";
+    ctx.beginPath();
+    ctx.arc(x+12,245,65,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function drawPlayer(){
+  if(player.inv>0 && Math.floor(player.inv/4)%2===0)return;
+
+  const x=player.x,y=player.y;
+
+  // bayangan
+  ctx.fillStyle="#1118";
+  ctx.beginPath();
+  ctx.ellipse(x+20,ground+3,35,8,0,0,Math.PI*2);
+  ctx.fill();
+
+  // badan
+  ctx.fillStyle="#a96b35";
+  ctx.fillRect(x+8,y+20,26,38);
+
+  // baju
+  ctx.fillStyle="#b43b2f";
+  ctx.fillRect(x+7,y+36,28,24);
+
+  // kepala
+  ctx.fillStyle="#b9793e";
+  ctx.beginPath();
+  ctx.arc(x+21,y+13,18,0,Math.PI*2);
+  ctx.fill();
+
+  // telinga
+  ctx.fillStyle="#c58a50";
+  ctx.beginPath();
+  ctx.arc(x+3,y+14,8,0,Math.PI*2);
+  ctx.arc(x+39,y+14,8,0,Math.PI*2);
+  ctx.fill();
+
+  // rambut
+  ctx.fillStyle="#24180f";
+  ctx.beginPath();
+  ctx.arc(x+21,y+7,18,Math.PI,Math.PI*2);
+  ctx.fill();
+
+  // mata
+  ctx.fillStyle="#111";
+  ctx.fillRect(x+14+(player.facing>0?5:0),y+11,4,4);
+
+  // ekor
+  ctx.strokeStyle="#b9793e";
+  ctx.lineWidth=6;
+  ctx.beginPath();
+  ctx.arc(x+(player.facing>0?0:42),y+48,22,0,Math.PI);
+  ctx.stroke();
+
+  // tongkat
+  ctx.strokeStyle="#d49a50";
+  ctx.lineWidth=7;
+
+  let angle=player.facing>0?-.25:Math.PI+.25;
+
+  if(player.attack>0)angle=player.facing>0?-.9:Math.PI+.9;
+  if(player.heavy>0)angle=player.facing>0?.8:Math.PI-.8;
+
+  ctx.beginPath();
+  ctx.moveTo(x+20,y+35);
+  ctx.lineTo(
+    x+20+Math.cos(angle)*80,
+    y+35+Math.sin(angle)*80
+  );
+  ctx.stroke();
+
+  // efek skill
+  if(player.special>0){
+    ctx.strokeStyle="#ffd166";
+    ctx.lineWidth=5;
+    ctx.beginPath();
+    ctx.arc(x+21,y+35,65,0,Math.PI*2);
+    ctx.stroke();
+  }
+}
+
+function drawEnemy(e){
+  const x=e.x,y=e.y;
+
+  ctx.fillStyle=e.hit>0?"#fff":"#733c30";
+
+  // badan
+  ctx.fillRect(x+8,y+15,28,40);
+
+  // kepala
+  ctx.beginPath();
+  ctx.arc(x+21,y+10,17,0,Math.PI*2);
+  ctx.fill();
+
+  // tanduk
+  ctx.fillStyle="#d7b46a";
+  ctx.beginPath();
+  ctx.moveTo(x+7,y);
+  ctx.lineTo(x+13,y-18);
+  ctx.lineTo(x+18,y+2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(x+35,y);
+  ctx.lineTo(x+29,y-18);
+  ctx.lineTo(x+24,y+2);
+  ctx.fill();
+
+  // mata
+  ctx.fillStyle="#ffcc33";
+  ctx.fillRect(x+12,y+8,5,4);
+  ctx.fillRect(x+27,y+8,5,4);
+
+  // HP bar
+  ctx.fillStyle="#300";
+  ctx.fillRect(x,y-28,42,6);
+
+  ctx.fillStyle="#e63946";
+  ctx.fillRect(x,y-28,42*(e.hp/e.maxHp),6);
+}
+
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.fillStyle=p.color;
+    ctx.globalAlpha=Math.max(0,p.life/40);
+    ctx.fillRect(p.x,p.y,5,5);
+  });
+
+  ctx.globalAlpha=1;
+}
+
+function bar(x,y,w,h,value,max,color){
+  ctx.fillStyle="#111";
+  ctx.fillRect(x,y,w,h);
+
+  ctx.fillStyle=color;
+  ctx.fillRect(x,y,w*(value/max),h);
+}
+
+function drawUI(){
+  ctx.fillStyle="#fff";
+  ctx.font="bold 18px Arial";
+  ctx.fillText("RAJA KERA",20,28);
+
+  bar(20,40,220,16,player.hp,player.maxHp,"#e63946");
+  bar(20,62,220,10,player.stamina,player.maxStamina,"#ffd166");
+
+  ctx.fillStyle="#fff";
+  ctx.font="14px Arial";
+  ctx.fillText("HP",248,53);
+  ctx.fillText("Stamina",248,71);
+
+  ctx.fillText("Wave: "+wave+"/5",20,100);
+  ctx.fillText("Skor: "+score,20,120);
+
+  if(specialCooldown<=0){
+    ctx.fillStyle="#ffd166";
+    ctx.fillText("JURUS [L] SIAP!",20,145);
+  }else{
+    ctx.fillStyle="#aaa";
+    ctx.fillText("Jurus cooldown: "+Math.ceil(specialCooldown/10),20,145);
+  }
+}
+
+function drawEnd(){
+  if(!gameOver)return;
+
+  ctx.fillStyle="#000b";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.textAlign="center";
+
+  ctx.fillStyle=win?"#ffd166":"#e63946";
+  ctx.font="bold 50px Arial";
+  ctx.fillText(
+    win?"KAMU MENANG!":"KALAH!",
+    W/2,220
+  );
+
+  ctx.fillStyle="#fff";
+  ctx.font="22px Arial";
+  ctx.fillText(
+    win?"Raja Kera mengalahkan semua musuh!":
+       "Raja Kera telah tumbang...",
+    W/2,270
+  );
+
+  ctx.font="18px Arial";
+  ctx.fillText("Skor: "+score,W/2,315);
+  ctx.fillText("Tekan tombol MAIN LAGI",W/2,350);
+
+  ctx.textAlign="left";
+}
+
+function draw(){
+  drawBackground();
+  enemies.forEach(drawEnemy);
+  drawPlayer();
+  drawParticles();
+  drawUI();
+  drawEnd();
+}
+
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+restart();
+loop();
+</script>
+
+</body>
+</html>
